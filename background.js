@@ -18,7 +18,7 @@ let clipboardQueue = Promise.resolve();
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "open-command-palette") {
-    togglePaletteInActiveTab();
+    togglePaletteInActiveTab().catch((error) => console.warn("Quick Palette:", error.message));
   } else if (command === "copy-current-url") {
     copyCurrentUrl(tab).catch((error) => notifyCopyResult(tab, false, error.message));
   }
@@ -26,7 +26,7 @@ chrome.commands.onCommand.addListener((command, tab) => {
 
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id) {
-    sendToggle(tab.id);
+    sendToggle(tab.id).catch((error) => console.warn("Quick Palette:", error.message));
   }
 });
 
@@ -90,15 +90,28 @@ async function openStandalonePalette(sourceTabId) {
   const top = parent?.top == null || parent?.height == null
     ? undefined
     : Math.round(parent.top + Math.max(0, (parent.height - height) / 3));
-  const created = await chrome.windows.create({
-    url: paletteUrl,
-    type: "popup",
-    focused: true,
-    width,
-    height,
-    left,
-    top
-  });
+  let created;
+  try {
+    created = await chrome.windows.create({
+      url: paletteUrl,
+      type: "popup",
+      focused: true,
+      width,
+      height,
+      left,
+      top
+    });
+  } catch {
+    // Wayland compositors don't report real window positions, so the computed
+    // bounds can land off-screen and Chrome rejects them. Let it place the window.
+    created = await chrome.windows.create({
+      url: paletteUrl,
+      type: "popup",
+      focused: true,
+      width,
+      height
+    });
+  }
   standaloneWindowId = created.id;
 }
 
