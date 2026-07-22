@@ -43,6 +43,6 @@ The palette opens as the extension's toolbar popup, so it works the same on ever
 
 ## Development
 
-There is no build step. After changing `manifest.json` or `background.js`, click the extension's reload button on `chrome://extensions`. Changes to `palette.html` or `palette.js` take effect the next time the popup opens.
+There is no build step. After changing any file, click the extension's reload button on `chrome://extensions`, then reopen the popup.
 
 Run the automated tests with `node --test tests/*.test.js`.
