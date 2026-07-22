@@ -44,6 +44,14 @@
   window.addEventListener("keypress", suppressHandledKeyEvent, true);
   window.addEventListener("keyup", suppressHandledKeyEvent, true);
   document.addEventListener("focusin", keepPaletteFocus, true);
+  // Only one palette should exist at a time: dismiss it as soon as its tab is
+  // hidden or its window loses focus, so stale palettes never linger elsewhere.
+  window.addEventListener("blur", () => {
+    if (isOpen) close();
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && isOpen) close();
+  });
 
   function mount() {
     host = document.createElement("div");
