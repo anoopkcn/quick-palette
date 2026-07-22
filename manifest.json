@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Quick Palette",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "minimum_chrome_version": "121",
   "author": "Anoop K. Chandran",
   "description": "Search the web, open pages, and jump between tabs from one keyboard-first palette.",
