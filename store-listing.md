@@ -49,16 +49,14 @@ open tabs, history entries, bookmarks, web searches, and browser commands.
   they choose "Search the web".
 - **storage** — Stores learned result-ranking preferences locally so
   frequently chosen items rank higher. Stays on-device.
-- **scripting** — Injects the palette overlay into pages that were already
-  open before the extension was installed, so the keyboard shortcut works
-  without reloading those tabs.
+- **activeTab** — Grants access to the current tab only when the user
+  explicitly invokes the palette (keyboard shortcut or toolbar click), so the
+  overlay can be shown in that tab. No standing host access is requested.
+- **scripting** — Injects the palette overlay into the active tab on demand,
+  under the activeTab grant.
 - **clipboardWrite** — Implements the "Copy current URL" command.
 - **offscreen** — Hosts the clipboard write for "Copy current URL" when it is
   triggered from a context without a focused page (service-worker limitation).
-- **Host permission `<all_urls>` / content script on all pages** — The palette
-  is an in-page overlay that must be available on every site the user visits;
-  the content script renders the UI and forwards the user's choice. It reads
-  nothing from the page itself.
 
 ## Data-use disclosures (Privacy tab)
 
