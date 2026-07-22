@@ -10,7 +10,6 @@ const CHROME_PAGES = {
 const USAGE_STORAGE_KEY = "tabRankingUsage";
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 const EXTENSION_ORIGIN = chrome.runtime.getURL("");
-let standaloneWindowId;
 let usageStatsCache;
 let usageWriteQueue = Promise.resolve();
 let offscreenCreation;
@@ -18,20 +17,12 @@ let clipboardQueue = Promise.resolve();
 
 chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "open-command-palette") {
-    togglePaletteInActiveTab().catch((error) => console.warn("Quick Palette:", error.message));
+    togglePalette().catch((error) => console.warn("Quick Palette:", error.message));
   } else if (command === "copy-current-url") {
-    copyCurrentUrl(tab).catch((error) => notifyCopyResult(tab, false, error.message));
+    copyCurrentUrl(tab)
+      .then(() => showCopyBadge(true))
+      .catch(() => showCopyBadge(false));
   }
-});
-
-chrome.action.onClicked.addListener((tab) => {
-  if (tab.id) {
-    sendToggle(tab.id).catch((error) => console.warn("Quick Palette:", error.message));
-  }
-});
-
-chrome.windows.onRemoved.addListener((windowId) => {
-  if (windowId === standaloneWindowId) standaloneWindowId = undefined;
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -42,86 +33,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
-async function togglePaletteInActiveTab() {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (tab?.id) {
-    await sendToggle(tab.id);
-  }
-}
-
-async function sendToggle(tabId) {
-  try {
-    await chrome.tabs.sendMessage(tabId, { type: "TOGGLE_PALETTE" });
+async function togglePalette() {
+  const popups = await chrome.runtime.getContexts({ contextTypes: ["POPUP"] });
+  if (popups.length) {
+    await chrome.runtime.sendMessage({ type: "CLOSE_PALETTE" }).catch(() => undefined);
     return;
-  } catch {
-    // The palette script is injected on demand (activeTab), so a tab the
-    // palette has not been opened in yet has no listener.
   }
-
-  try {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["ranking.js", "content.js"] });
-    await chrome.tabs.sendMessage(tabId, { type: "TOGGLE_PALETTE" });
-  } catch {
-    // Chrome pages and the Web Store reject injection, so use an extension window.
-    await openStandalonePalette(tabId);
-  }
-}
-
-async function openStandalonePalette(sourceTabId) {
-  const paletteUrl = chrome.runtime.getURL(`palette.html?tabId=${sourceTabId}`);
-  if (standaloneWindowId) {
-    try {
-      // Reload the palette page so it targets the new source tab instead of
-      // whichever tab it was opened for previously.
-      const [paletteTab] = await chrome.tabs.query({ windowId: standaloneWindowId });
-      if (paletteTab?.id) await chrome.tabs.update(paletteTab.id, { url: paletteUrl });
-      await chrome.windows.update(standaloneWindowId, { focused: true });
-      return;
-    } catch {
-      standaloneWindowId = undefined;
-    }
-  }
-
-  const parent = await chrome.windows.getLastFocused().catch(() => null);
-  const width = 720;
-  const height = 560;
-  const left = parent?.left == null || parent?.width == null
-    ? undefined
-    : Math.round(parent.left + Math.max(0, (parent.width - width) / 2));
-  const top = parent?.top == null || parent?.height == null
-    ? undefined
-    : Math.round(parent.top + Math.max(0, (parent.height - height) / 3));
-  let created;
-  try {
-    created = await chrome.windows.create({
-      url: paletteUrl,
-      type: "popup",
-      focused: true,
-      width,
-      height,
-      left,
-      top
-    });
-  } catch {
-    // Wayland compositors don't report real window positions, so the computed
-    // bounds can land off-screen and Chrome rejects them. Let it place the window.
-    created = await chrome.windows.create({
-      url: paletteUrl,
-      type: "popup",
-      focused: true,
-      width,
-      height
-    });
-  }
-  standaloneWindowId = created.id;
+  // Rejects when no browser window is focused or the popup is disallowed
+  // (e.g. incognito without access); there is nowhere to show the palette then.
+  await chrome.action.openPopup();
 }
 
 async function handleMessage(message, sender) {
   switch (message?.type) {
     case "GET_PALETTE_DATA": {
-      const contextTab = message.contextTabId
-        ? await chrome.tabs.get(message.contextTabId).catch(() => sender.tab)
-        : sender.tab;
+      // The popup has no sender.tab; while it is open its host window is the
+      // last-focused window, so this resolves to the tab underneath it.
+      const contextTab = sender.tab
+        ?? (await chrome.tabs.query({ active: true, lastFocusedWindow: true }))[0];
       return getPaletteData(message.query || "", contextTab, message.mode);
     }
     case "ACTIVATE_TAB": {
@@ -169,17 +98,8 @@ async function handleMessage(message, sender) {
     case "RESET_TAB_RANKING":
       await resetLearnedRanking();
       return {};
-    case "COPY_CURRENT_URL": {
-      const targetTab = message.tabId
-        ? await chrome.tabs.get(message.tabId)
-        : sender.tab;
-      try {
-        return await copyCurrentUrl(targetTab);
-      } catch (error) {
-        notifyCopyResult(targetTab, false, error.message);
-        throw error;
-      }
-    }
+    case "COPY_CURRENT_URL":
+      return copyCurrentUrl(sender.tab);
     default:
       throw new Error("Unknown palette action");
   }
@@ -315,23 +235,13 @@ async function copyCurrentUrl(sourceTab) {
   }
 
   await writeClipboard(tab.url);
-  notifyCopyResult(tab, true);
   return { copiedUrl: tab.url };
 }
 
-async function notifyCopyResult(tab, success, error) {
-  if (!tab?.id) return;
-  const message = { type: "SHOW_COPY_FEEDBACK", success, error };
-  try {
-    await chrome.tabs.sendMessage(tab.id, message);
-  } catch {
-    try {
-      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["ranking.js", "content.js"] });
-      await chrome.tabs.sendMessage(tab.id, message);
-    } catch {
-      // Chrome pages reject injection, so the toast is skipped there.
-    }
-  }
+function showCopyBadge(success) {
+  chrome.action.setBadgeBackgroundColor({ color: success ? "#3fb950" : "#e5534b" });
+  chrome.action.setBadgeText({ text: success ? "✓" : "!" });
+  setTimeout(() => chrome.action.setBadgeText({ text: "" }), 1500);
 }
 
 function writeClipboard(text) {

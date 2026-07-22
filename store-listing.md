@@ -14,8 +14,9 @@ package (see .gitignore note in dist/).
 
 ## Description
 
-Quick Palette puts a Spotlight-style command palette in every tab. Press
-Ctrl+Shift+K (⌘⇧K on Mac) and start typing to:
+Quick Palette puts a Spotlight-style command palette one keystroke away in
+your toolbar — on any page, including Chrome's own. Press Ctrl+Shift+K (⌘⇧K
+on Mac) and start typing to:
 
 - Jump to any open tab, in any window
 - Reopen pages from your history and bookmarks
@@ -49,11 +50,6 @@ open tabs, history entries, bookmarks, web searches, and browser commands.
   they choose "Search the web".
 - **storage** — Stores learned result-ranking preferences locally so
   frequently chosen items rank higher. Stays on-device.
-- **activeTab** — Grants access to the current tab only when the user
-  explicitly invokes the palette (keyboard shortcut or toolbar click), so the
-  overlay can be shown in that tab. No standing host access is requested.
-- **scripting** — Injects the palette overlay into the active tab on demand,
-  under the activeTab grant.
 - **clipboardWrite** — Implements the "Copy current URL" command.
 - **offscreen** — Hosts the clipboard write for "Copy current URL" when it is
   triggered from a context without a focused page (service-worker limitation).

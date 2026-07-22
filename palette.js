@@ -1,7 +1,4 @@
 (() => {
-  if (window.__quickPaletteLoaded) return;
-  window.__quickPaletteLoaded = true;
-  const isStandalone = location.protocol === "chrome-extension:";
   const isMac = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
   const jumpKeyLabel = isMac ? "⌘" : "^";
 
@@ -23,7 +20,6 @@
   let input;
   let resultsElement;
   let footerHint;
-  let isOpen = false;
   let results = [];
   let totalTabCount = 0;
   let selectedIndex = 0;
@@ -33,25 +29,13 @@
   let browseMode = null;
   let scopeChip;
   const markedUrls = new Set();
-  const suppressedKeys = new Set();
   const DEFAULT_PLACEHOLDER = "Search tabs, history, or the web";
 
   chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type === "TOGGLE_PALETTE") toggle();
-    if (message?.type === "SHOW_COPY_FEEDBACK") showCopyFeedback(message.success);
+    if (message?.type === "CLOSE_PALETTE") close();
   });
   window.addEventListener("keydown", onGlobalKeyDown, true);
-  window.addEventListener("keypress", suppressHandledKeyEvent, true);
-  window.addEventListener("keyup", suppressHandledKeyEvent, true);
   document.addEventListener("focusin", keepPaletteFocus, true);
-  // Only one palette should exist at a time: dismiss it as soon as its tab is
-  // hidden or its window loses focus, so stale palettes never linger elsewhere.
-  window.addEventListener("blur", () => {
-    if (isOpen) close();
-  });
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden && isOpen) close();
-  });
 
   function mount() {
     host = document.createElement("div");
@@ -66,15 +50,13 @@
         }
         *, *::before, *::after { box-sizing: border-box; }
         .backdrop {
-          position: fixed; inset: 0; z-index: 2147483647;
+          position: fixed; inset: 0;
           display: grid; place-items: start center;
-          padding: min(18vh, 150px) 20px 24px;
-          background: rgba(8, 10, 13, .45);
+          padding: 10px 10px 14px;
+          background: #0c0e12;
           font-family: var(--sans);
           animation: fade-in 110ms ease-out;
         }
-        .backdrop.standalone { background: #0c0e12; }
-        .backdrop.standalone .results { max-height: min(calc(100vh - 240px), 430px); }
         .panel {
           width: min(660px, 100%); overflow: hidden;
           background: #15171c; color: #d8d6ce;
@@ -90,7 +72,7 @@
         .esc { flex: 0 0 auto; padding: 3px 5px; border: 1px solid #333a45; border-radius: 3px; background: #1c1f26; color: #8a92a0; font: 500 9.5px/1.2 var(--mono); }
         .scope { flex: 0 0 auto; padding: 2px 6px; border: 1px solid rgba(255, 180, 84, .4); border-radius: 3px; background: rgba(255, 180, 84, .08); color: #ffb454; font: 600 10px/1.4 var(--mono); text-transform: lowercase; }
         .scope[hidden] { display: none; }
-        .results { max-height: min(52vh, 430px); overflow: auto; padding: 5px; scrollbar-width: thin; scrollbar-color: #333a45 transparent; }
+        .results { max-height: calc(100vh - 108px); overflow: auto; padding: 5px; scrollbar-width: thin; scrollbar-color: #333a45 transparent; }
         .section { padding: 9px 8px 5px; color: #667081; font: 600 10px/1.2 var(--mono); letter-spacing: .12em; text-transform: lowercase; }
         .item { width: 100%; height: 38px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 0 9px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; cursor: default; font-family: var(--sans); }
         .item:hover { background: #1b1e24; }
@@ -116,15 +98,9 @@
         .footer b { color: #9aa3b2; font-weight: 500; }
         @keyframes fade-in { from { opacity: 0; } }
         @keyframes enter { from { opacity: 0; transform: translateY(-6px) scale(.995); } }
-        @media (max-width: 540px) {
-          .backdrop { padding: 10px; }
-          .panel { width: 100%; }
-          .results { max-height: calc(100vh - 128px); }
-          .sub, .meta { display: none; }
-        }
         @media (prefers-reduced-motion: reduce) { .backdrop, .panel { animation: none; } }
       </style>
-      <div class="backdrop${isStandalone ? " standalone" : ""}" role="presentation">
+      <div class="backdrop" role="presentation">
         <section class="panel" role="dialog" aria-modal="true" aria-label="Quick Palette">
           <div class="search">
             <span class="prompt" aria-hidden="true">❯</span>
@@ -165,13 +141,8 @@
     document.documentElement.appendChild(host);
   }
 
-  function toggle() {
-    if (isOpen) close(); else open();
-  }
-
   function open() {
     if (!host) mount();
-    isOpen = true;
     host.style.display = "block";
     input.value = "";
     selectedIndex = 0;
@@ -199,24 +170,18 @@
   }
 
   function close() {
-    if (!host) return;
-    isOpen = false;
-    requestSequence += 1;
-    host.style.display = "none";
-    if (isStandalone) window.close();
+    window.close();
   }
 
   async function refresh() {
     const query = input.value.trim();
     const sequence = ++requestSequence;
-    const contextTabId = getContextTabId();
     const response = await chrome.runtime.sendMessage({
       type: "GET_PALETTE_DATA",
       query,
-      contextTabId,
       mode: browseMode || undefined
     }).catch(() => null);
-    if (!isOpen || sequence !== requestSequence || !response?.ok) return;
+    if (sequence !== requestSequence || !response?.ok) return;
     totalTabCount = response.tabs.length;
     results = buildResults(query, response);
     selectedIndex = Math.min(selectedIndex, Math.max(0, results.length - 1));
@@ -505,16 +470,16 @@
   }
 
   async function openMarked() {
-    const urls = [...markedUrls];
+    // Send before closing: window.close() tears down this JS context, so a
+    // message dispatched after it would never reach the background worker.
+    await chrome.runtime.sendMessage({ type: "OPEN_URLS", urls: [...markedUrls] }).catch(() => null);
     close();
-    await chrome.runtime.sendMessage({ type: "OPEN_URLS", urls }).catch(() => null);
   }
 
   function onGlobalKeyDown(event) {
-    if (!isOpen || event.isComposing) return;
+    if (event.isComposing) return;
 
     if (["Escape", "ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key)) {
-      suppressedKeys.add(keyIdentifier(event));
       event.stopImmediatePropagation();
       onKeyDown(event);
       return;
@@ -524,7 +489,6 @@
       ? event.metaKey && !event.ctrlKey
       : event.ctrlKey && !event.metaKey;
     if (jumpModifier && !event.altKey && !event.shiftKey && /^[1-9]$/.test(event.key)) {
-      suppressedKeys.add(keyIdentifier(event));
       event.preventDefault();
       event.stopImmediatePropagation();
       const jumpIndex = Number(event.key) - 1;
@@ -533,7 +497,6 @@
     }
 
     if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.key === "j" || event.key === "k")) {
-      suppressedKeys.add(keyIdentifier(event));
       event.preventDefault();
       event.stopImmediatePropagation();
       hoverSelectionEnabled = false;
@@ -545,12 +508,10 @@
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
     if (event.key.length === 1) {
-      suppressedKeys.add(keyIdentifier(event));
       event.preventDefault();
       event.stopImmediatePropagation();
       replaceInputSelection(event.key);
     } else if (event.key === "Backspace" || event.key === "Delete") {
-      suppressedKeys.add(keyIdentifier(event));
       event.preventDefault();
       event.stopImmediatePropagation();
       if (event.key === "Backspace" && browseMode && !input.value) {
@@ -561,23 +522,9 @@
     }
   }
 
-  function suppressHandledKeyEvent(event) {
-    const identifier = keyIdentifier(event);
-    if (!suppressedKeys.has(identifier)) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (event.type === "keyup") suppressedKeys.delete(identifier);
-  }
-
   function keepPaletteFocus() {
-    if (!isOpen || !host || document.activeElement === host) return;
-    queueMicrotask(() => {
-      if (isOpen) input.focus({ preventScroll: true });
-    });
-  }
-
-  function keyIdentifier(event) {
-    return event.code || event.key;
+    if (!host || document.activeElement === host) return;
+    queueMicrotask(() => input.focus({ preventScroll: true }));
   }
 
   function replaceInputSelection(text) {
@@ -637,16 +584,15 @@
       return;
     }
     if (result.action.type === "COPY_CURRENT_URL") {
-      close();
-      const response = await chrome.runtime.sendMessage({
-        ...result.action,
-        tabId: getContextTabId()
-      }).catch(() => null);
-      if (!response?.ok) showCopyFeedback(false);
+      const response = await chrome.runtime.sendMessage(result.action).catch(() => null);
+      showCopyFeedback(Boolean(response?.ok));
+      // Leave the toast visible before closing; on failure stay open.
+      if (response?.ok) setTimeout(close, 900);
       return;
     }
-    close();
+    // Send before closing: window.close() tears down this JS context.
     await chrome.runtime.sendMessage(result.action).catch(() => null);
+    close();
   }
 
   function showResetConfirmation() {
@@ -660,12 +606,6 @@
       action: { type: "RESET_TAB_RANKING" }
     }];
     render();
-  }
-
-  function getContextTabId() {
-    return isStandalone
-      ? Number(new URLSearchParams(location.search).get("tabId")) || undefined
-      : undefined;
   }
 
   function showCopyFeedback(success = true) {
@@ -761,5 +701,5 @@
     };
   }
 
-  if (isStandalone) open();
+  open();
 })();

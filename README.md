@@ -22,7 +22,7 @@ It can:
 1. Open `chrome://extensions` in Chrome.
 2. Enable **Developer mode**.
 3. Click **Load unpacked** and select this directory.
-4. Open a normal webpage and press `Command+Shift+K` on macOS or `Ctrl+Shift+K` on Windows/Linux.
+4. Press `Command+Shift+K` on macOS or `Ctrl+Shift+K` on Windows/Linux, or click the toolbar icon.
 
 Chrome may leave the shortcut unassigned if another extension or browser feature already uses it. Open `chrome://extensions/shortcuts` to assign or change the shortcut.
 
@@ -39,10 +39,10 @@ The **Copy current tab URL** shortcut is unassigned by default. Assign any suppo
 - Hover a tab result and click the close button to close that tab.
 - Search for **Reset learned tab ranking** to clear locally stored ranking preferences.
 
-On protected Chrome pages and the Chrome Web Store, Chrome does not allow an injected overlay. Quick Palette automatically opens in a small extension window instead.
+The palette opens as the extension's toolbar popup, so it works the same on every page — including `chrome://` pages, the new tab page, and the Chrome Web Store. In incognito windows the shortcut only works if **Allow in Incognito** is enabled for the extension.
 
 ## Development
 
-There is no build step. After changing `manifest.json` or `background.js`, click the extension's reload button on `chrome://extensions`. Reload an open page after changing `content.js`.
+There is no build step. After changing `manifest.json` or `background.js`, click the extension's reload button on `chrome://extensions`. Changes to `palette.html` or `palette.js` take effect the next time the popup opens.
 
 Run the automated tests with `node --test tests/*.test.js`.

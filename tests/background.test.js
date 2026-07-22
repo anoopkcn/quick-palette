@@ -6,9 +6,23 @@ const stored = {};
 let messageListener;
 let commandListener;
 let offscreenOpen = false;
-const clipboardMessages = [];
-const tabMessages = [];
+let popupOpen = false;
+let openPopupCalls = 0;
+const runtimeMessages = [];
 const createdTabs = [];
+const badgeTexts = [];
+
+// Intercept the badge-clear timer (1.5s) so the test process doesn't wait on
+// it; short tick timers used by the tests themselves pass through.
+const scheduledCallbacks = [];
+const realSetTimeout = global.setTimeout;
+global.setTimeout = (callback, delay, ...args) => {
+  if (delay >= 1000) {
+    scheduledCallbacks.push(callback);
+    return 0;
+  }
+  return realSetTimeout(callback, delay, ...args);
+};
 
 const tabs = new Map([
   [1, {
@@ -17,7 +31,7 @@ const tabs = new Map([
     title: "Example",
     url: "https://example.com/docs",
     favIconUrl: "",
-    active: false,
+    active: true,
     incognito: false,
     pinned: true,
     lastAccessed: Date.now()
@@ -37,7 +51,11 @@ const tabs = new Map([
 
 global.importScripts = () => { global.QuickPaletteRanking = ranking; };
 global.chrome = {
-  action: { onClicked: { addListener() {} } },
+  action: {
+    async openPopup() { openPopupCalls += 1; },
+    setBadgeText({ text }) { badgeTexts.push(text); },
+    setBadgeBackgroundColor() {}
+  },
   bookmarks: {
     async search() { return [{ id: "b1", title: "Searched bookmark", url: "https://bookmark.test/searched" }]; },
     async getRecent() { return [{ id: "b2", title: "Recent bookmark", url: "https://bookmark.test/recent", dateAdded: 7 }]; }
@@ -47,11 +65,16 @@ global.chrome = {
     async search() { return [{ id: "h1", title: "Visited page", url: "https://history.test/visited", lastVisitTime: 5 }]; }
   },
   runtime: {
-    async getContexts() { return offscreenOpen ? [{ contextType: "OFFSCREEN_DOCUMENT" }] : []; },
+    async getContexts(filter) {
+      if (filter?.contextTypes?.includes("POPUP")) {
+        return popupOpen ? [{ contextType: "POPUP" }] : [];
+      }
+      return offscreenOpen ? [{ contextType: "OFFSCREEN_DOCUMENT" }] : [];
+    },
     getURL: (path) => `chrome-extension://test/${path}`,
     onMessage: { addListener(listener) { messageListener = listener; } },
     async sendMessage(message) {
-      clipboardMessages.push(message);
+      runtimeMessages.push(message);
       return { ok: true };
     }
   },
@@ -59,7 +82,6 @@ global.chrome = {
     async closeDocument() { offscreenOpen = false; },
     async createDocument() { offscreenOpen = true; }
   },
-  scripting: { executeScript: async () => undefined },
   search: { query: async () => undefined },
   storage: {
     local: {
@@ -70,25 +92,29 @@ global.chrome = {
   tabs: {
     async create(properties = {}) { createdTabs.push(properties); },
     async get(id) { return tabs.get(id); },
-    async query() { return Array.from(tabs.values()); },
+    async query(queryInfo = {}) {
+      const all = Array.from(tabs.values());
+      return queryInfo.active ? all.filter((tab) => tab.active) : all;
+    },
     async remove() {},
-    async sendMessage(tabId, message) { tabMessages.push({ tabId, message }); },
     async update() {}
   },
   windows: {
     async create() { return { id: 10 }; },
-    async getLastFocused() { return null; },
-    onRemoved: { addListener() {} },
     async update() {}
   }
 };
 
 require("../background.js");
 
-function send(message) {
+function send(message, sender = { tab: tabs.get(1) }) {
   return new Promise((resolve) => {
-    messageListener(message, { tab: tabs.get(1) }, resolve);
+    messageListener(message, sender, resolve);
   });
+}
+
+function tick() {
+  return new Promise((resolve) => realSetTimeout(resolve, 0));
 }
 
 test("successful palette activation learns normal tabs but not incognito tabs", async () => {
@@ -108,31 +134,54 @@ test("palette data exposes pinned and learned preference signals", async () => {
   assert.equal(response.tabs.find((tab) => tab.id === 2).preferenceScore, 0);
 });
 
+test("palette data from the popup falls back to the active tab as context", async () => {
+  const response = await send({ type: "GET_PALETTE_DATA", query: "" }, {});
+  assert.equal(response.ok, true);
+  assert.equal(response.currentTabId, 1);
+  assert.equal(response.currentWindowId, 1);
+});
+
 test("reset clears all learned ranking records", async () => {
   assert.equal((await send({ type: "RESET_TAB_RANKING" })).ok, true);
   assert.deepEqual(stored.tabRankingUsage, ranking.emptyUsageStats());
 });
 
-test("palette action copies the requested tab URL and sends feedback", async () => {
-  const response = await send({ type: "COPY_CURRENT_URL", tabId: 1 });
+test("open-command-palette opens the popup, or closes an already-open one", async () => {
+  commandListener("open-command-palette");
+  await tick();
+  assert.equal(openPopupCalls, 1);
+
+  popupOpen = true;
+  commandListener("open-command-palette");
+  await tick();
+  assert.equal(openPopupCalls, 1);
+  assert.deepEqual(runtimeMessages.at(-1), { type: "CLOSE_PALETTE" });
+  popupOpen = false;
+});
+
+test("popup-initiated copy resolves the active tab and shows no badge", async () => {
+  badgeTexts.length = 0;
+  const response = await send({ type: "COPY_CURRENT_URL" }, {});
   assert.equal(response.ok, true);
   assert.equal(response.copiedUrl, "https://example.com/docs");
-  assert.deepEqual(clipboardMessages.at(-1), {
+  assert.deepEqual(runtimeMessages.at(-1), {
     target: "offscreen",
     type: "WRITE_CLIPBOARD",
     text: "https://example.com/docs"
   });
-  assert.deepEqual(tabMessages.at(-1), {
-    tabId: 1,
-    message: { type: "SHOW_COPY_FEEDBACK", success: true, error: undefined }
-  });
   assert.equal(offscreenOpen, false);
+  assert.equal(badgeTexts.length, 0);
 });
 
-test("copy-current-url extension command uses its supplied active tab", async () => {
+test("copy-current-url extension command uses its supplied active tab and flashes the badge", async () => {
+  badgeTexts.length = 0;
+  scheduledCallbacks.length = 0;
   commandListener("copy-current-url", tabs.get(2));
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  assert.equal(clipboardMessages.at(-1).text, "https://private.example/");
+  await tick();
+  assert.equal(runtimeMessages.at(-1).text, "https://private.example/");
+  assert.deepEqual(badgeTexts, ["✓"]);
+  scheduledCallbacks.forEach((callback) => callback());
+  assert.deepEqual(badgeTexts, ["✓", ""]);
 });
 
 test("history browse mode returns history items and no tabs, even without a query", async () => {
