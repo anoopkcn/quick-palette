@@ -524,6 +524,16 @@
       return;
     }
 
+    if (event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && (event.key === "j" || event.key === "k")) {
+      suppressedKeys.add(keyIdentifier(event));
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      hoverSelectionEnabled = false;
+      const step = event.key === "j" ? 1 : -1;
+      select((selectedIndex + step + results.length) % results.length);
+      return;
+    }
+
     if (event.ctrlKey || event.metaKey || event.altKey) return;
 
     if (event.key.length === 1) {
