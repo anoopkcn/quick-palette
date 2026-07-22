@@ -12,6 +12,7 @@
     { title: "Bookmarks", subtitle: "Open bookmark manager", icon: "★", keywords: "saved favorites", action: { type: "OPEN_CHROME_PAGE", page: "bookmarks" } },
     { title: "Extensions", subtitle: "Manage Chrome extensions", icon: "◇", keywords: "plugins addons", action: { type: "OPEN_CHROME_PAGE", page: "extensions" } },
     { title: "Settings", subtitle: "Open Chrome settings", icon: "⚙", keywords: "preferences", action: { type: "OPEN_CHROME_PAGE", page: "settings" } },
+    { title: "Copy current URL", subtitle: "Copy this tab's address to the clipboard", icon: "⧉", keywords: "clipboard link address", action: { type: "COPY_CURRENT_URL" } },
     { title: "Reset learned tab ranking", subtitle: "Clear Quick Palette tab preferences", icon: "↺", keywords: "clear smart sorting preferences", action: { type: "REQUEST_RESET_TAB_RANKING" } }
   ];
 
@@ -29,6 +30,7 @@
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "TOGGLE_PALETTE") toggle();
+    if (message?.type === "SHOW_COPY_FEEDBACK") showCopyFeedback(message.success);
   });
   window.addEventListener("keydown", onGlobalKeyDown, true);
   window.addEventListener("keypress", suppressHandledKeyEvent, true);
@@ -165,9 +167,7 @@
   async function refresh() {
     const query = input.value.trim();
     const sequence = ++requestSequence;
-    const contextTabId = isStandalone
-      ? Number(new URLSearchParams(location.search).get("tabId")) || undefined
-      : undefined;
+    const contextTabId = getContextTabId();
     const response = await chrome.runtime.sendMessage({
       type: "GET_PALETTE_DATA",
       query,
@@ -472,6 +472,15 @@
       await refresh();
       return;
     }
+    if (result.action.type === "COPY_CURRENT_URL") {
+      close();
+      const response = await chrome.runtime.sendMessage({
+        ...result.action,
+        tabId: getContextTabId()
+      }).catch(() => null);
+      if (!response?.ok) showCopyFeedback(false);
+      return;
+    }
     close();
     await chrome.runtime.sendMessage(result.action).catch(() => null);
   }
@@ -487,6 +496,37 @@
       action: { type: "RESET_TAB_RANKING" }
     }];
     render();
+  }
+
+  function getContextTabId() {
+    return isStandalone
+      ? Number(new URLSearchParams(location.search).get("tabId")) || undefined
+      : undefined;
+  }
+
+  function showCopyFeedback(success = true) {
+    document.getElementById("quick-palette-copy-toast")?.remove();
+    const toastHost = document.createElement("div");
+    toastHost.id = "quick-palette-copy-toast";
+    const toastShadow = toastHost.attachShadow({ mode: "closed" });
+    toastShadow.innerHTML = `
+      <style>
+        :host { all: initial; }
+        div {
+          position: fixed; top: 18px; right: 18px; z-index: 2147483647;
+          padding: 9px 12px; border: 1px solid rgba(20, 20, 18, .18); border-radius: 6px;
+          background: #202124; color: #f5f5f2;
+          box-shadow: 0 8px 30px rgba(0, 0, 0, .28);
+          font: 600 12px/1.2 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          letter-spacing: 0; animation: toast-in 120ms ease-out;
+        }
+        div.error { background: #9f2f2f; }
+        @keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } }
+        @media (prefers-reduced-motion: reduce) { div { animation: none; } }
+      </style>
+      <div class="${success ? "" : "error"}" role="status">${success ? "URL copied" : "Could not copy URL"}</div>`;
+    document.documentElement.appendChild(toastHost);
+    setTimeout(() => toastHost.remove(), 1600);
   }
 
   function selectedItem() {

@@ -8,12 +8,17 @@ const CHROME_PAGES = {
   settings: "chrome://settings/"
 };
 const USAGE_STORAGE_KEY = "tabRankingUsage";
+const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 let standaloneWindowId;
 let usageWriteQueue = Promise.resolve();
+let offscreenCreation;
+let clipboardQueue = Promise.resolve();
 
-chrome.commands.onCommand.addListener((command) => {
+chrome.commands.onCommand.addListener((command, tab) => {
   if (command === "open-command-palette") {
     togglePaletteInActiveTab();
+  } else if (command === "copy-current-url") {
+    copyCurrentUrl(tab).catch((error) => notifyCopyResult(tab, false, error.message));
   }
 });
 
@@ -28,6 +33,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.target === "offscreen") return false;
   handleMessage(message, sender)
     .then((result) => sendResponse({ ok: true, ...result }))
     .catch((error) => sendResponse({ ok: false, error: error.message }));
@@ -132,6 +138,17 @@ async function handleMessage(message, sender) {
     case "RESET_TAB_RANKING":
       await resetLearnedRanking();
       return {};
+    case "COPY_CURRENT_URL": {
+      const targetTab = message.tabId
+        ? await chrome.tabs.get(message.tabId)
+        : sender.tab;
+      try {
+        return await copyCurrentUrl(targetTab);
+      } catch (error) {
+        notifyCopyResult(targetTab, false, error.message);
+        throw error;
+      }
+    }
     default:
       throw new Error("Unknown palette action");
   }
@@ -217,4 +234,64 @@ function resetLearnedRanking() {
       [USAGE_STORAGE_KEY]: QuickPaletteRanking.clearUsageStats()
     }));
   return usageWriteQueue;
+}
+
+async function copyCurrentUrl(sourceTab) {
+  let tab = sourceTab;
+  if (!tab?.url || tab.url.startsWith(chrome.runtime.getURL(""))) {
+    [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  }
+  if (!tab?.url || tab.url.startsWith(chrome.runtime.getURL(""))) {
+    throw new Error("No browser tab URL is available to copy");
+  }
+
+  await writeClipboard(tab.url);
+  notifyCopyResult(tab, true);
+  return { copiedUrl: tab.url };
+}
+
+function notifyCopyResult(tab, success, error) {
+  if (!tab?.id) return;
+  chrome.tabs.sendMessage(tab.id, {
+    type: "SHOW_COPY_FEEDBACK",
+    success,
+    error
+  }).catch(() => undefined);
+}
+
+function writeClipboard(text) {
+  clipboardQueue = clipboardQueue
+    .catch(() => undefined)
+    .then(async () => {
+      await ensureOffscreenDocument();
+      try {
+        const response = await chrome.runtime.sendMessage({
+          target: "offscreen",
+          type: "WRITE_CLIPBOARD",
+          text
+        });
+        if (!response?.ok) throw new Error(response?.error || "Clipboard write failed");
+      } finally {
+        await chrome.offscreen.closeDocument().catch(() => undefined);
+      }
+    });
+  return clipboardQueue;
+}
+
+async function ensureOffscreenDocument() {
+  const offscreenUrl = chrome.runtime.getURL(OFFSCREEN_DOCUMENT_PATH);
+  const existing = await chrome.runtime.getContexts({
+    contextTypes: ["OFFSCREEN_DOCUMENT"],
+    documentUrls: [offscreenUrl]
+  });
+  if (existing.length) return;
+
+  if (!offscreenCreation) {
+    offscreenCreation = chrome.offscreen.createDocument({
+      url: OFFSCREEN_DOCUMENT_PATH,
+      reasons: ["CLIPBOARD"],
+      justification: "Copy the active tab URL at the user's request"
+    }).finally(() => { offscreenCreation = undefined; });
+  }
+  await offscreenCreation;
 }

@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Quick Palette",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "author": "Anoop K. Chandran",
   "description": "Search the web, open pages, and jump between tabs from one keyboard-first palette.",
   "permissions": [
     "bookmarks",
+    "clipboardWrite",
     "history",
+    "offscreen",
     "search",
     "scripting",
     "storage",
@@ -38,6 +40,9 @@
         "mac": "Command+Shift+K"
       },
       "description": "Open Quick Palette"
+    },
+    "copy-current-url": {
+      "description": "Copy current tab URL"
     }
   },
   "content_scripts": [

@@ -10,6 +10,7 @@ A keyboard-first command palette for Chrome, inspired by Arc's command bar. It c
 - Create tabs, windows, and incognito windows
 - Open common Chrome pages such as History, Downloads, Bookmarks, Extensions, and Settings
 - Close open tabs from the result list
+- Copy the current tab URL from the palette or a configurable keyboard shortcut
 
 ## Author
 
@@ -23,6 +24,8 @@ Anoop K. Chandran
 4. Open a normal webpage and press `Command+Shift+K` on macOS or `Ctrl+Shift+K` on Windows/Linux.
 
 Chrome may leave the shortcut unassigned if another extension or browser feature already uses it. Open `chrome://extensions/shortcuts` to assign or change the shortcut.
+
+The **Copy current tab URL** shortcut is unassigned by default. Assign any supported key combination to it at `chrome://extensions/shortcuts`.
 
 ## Use
 
