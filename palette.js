@@ -56,7 +56,7 @@
           animation: enter 120ms ease-out;
           font-variant-numeric: tabular-nums;
         }
-        .search { display: flex; align-items: center; flex: 0 0 auto; min-height: 50px; padding: 0 16px; gap: 10px; border-bottom: 1px solid #23262e; }
+        .search { display: flex; align-items: center; flex: 0 0 auto; min-height: 40px; padding: 0 14px; gap: 10px; border-bottom: 1px solid #23262e; }
         .prompt { flex: 0 0 auto; color: #ffb454; font: 700 14px/1 var(--mono); }
         input { all: unset; min-width: 0; flex: 1; color: #e8e6df; font: 400 15px/1.4 var(--mono); caret-color: #ffb454; user-select: text; }
         input::placeholder { color: #58606e; opacity: 1; }
