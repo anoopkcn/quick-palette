@@ -32,6 +32,7 @@ The **Copy current tab URL** shortcut is unassigned by default. Assign any suppo
 - Start typing to filter open tabs and search history/bookmarks.
 - Use the up/down arrow keys to move through results.
 - Press Enter to open the selected result.
+- Press Tab to mark several history or bookmark results (Shift+Tab marks and moves up). With marks set, Enter opens every marked result in a background tab, and Escape clears the marks.
 - Press Escape or click outside the palette to close it.
 - Hover a tab result and click the close button to close that tab.
 - Search for **Reset learned tab ranking** to clear locally stored ranking preferences.

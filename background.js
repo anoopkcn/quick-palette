@@ -125,6 +125,16 @@ async function handleMessage(message, sender) {
     case "OPEN_URL":
       await chrome.tabs.create({ url: message.url });
       return {};
+    case "OPEN_URLS": {
+      const urls = Array.isArray(message.urls)
+        ? message.urls.filter((url) => typeof url === "string" && url)
+        : [];
+      if (!urls.length) throw new Error("No URLs to open");
+      for (const url of urls) {
+        await chrome.tabs.create({ url, active: false });
+      }
+      return {};
+    }
     case "OPEN_CHROME_PAGE":
       if (!CHROME_PAGES[message.page]) throw new Error("Unknown Chrome page");
       await chrome.tabs.create({ url: CHROME_PAGES[message.page] });

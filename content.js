@@ -30,6 +30,7 @@
   let requestSequence = 0;
   let hoverSelectionEnabled = true;
   let resetConfirmation = false;
+  const markedUrls = new Set();
   const suppressedKeys = new Set();
 
   chrome.runtime.onMessage.addListener((message) => {
@@ -97,6 +98,7 @@
         .item.closeable:hover .key { display: none; }
         .item.closeable:hover .close { display: grid; place-items: center; }
         .close:hover { background: #262b33; color: #e8e6df; }
+        .item.marked .icon { color: #ffb454; font-weight: 700; }
         .empty { padding: 40px 20px; color: #667081; text-align: center; font: 400 11.5px/1.6 var(--mono); }
         .footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid #23262e; color: #667081; font: 400 10.5px/1.4 var(--mono); }
         .footer b { color: #9aa3b2; font-weight: 500; }
@@ -118,7 +120,7 @@
             <span class="esc">esc</span>
           </div>
           <div id="quick-palette-results" class="results" role="listbox"></div>
-          <div class="footer"><span class="footer-hint">Type to search</span><span><b>↑↓</b> move · <b>${jumpKeyLabel}n</b> jump · <b>↵</b> open</span></div>
+          <div class="footer"><span class="footer-hint">Type to search</span><span><b>↑↓</b> move · <b>⇥</b> mark · <b>${jumpKeyLabel}n</b> jump · <b>↵</b> open</span></div>
         </section>
       </div>`;
     input = shadow.querySelector("input");
@@ -161,6 +163,7 @@
     selectedIndex = 0;
     resetConfirmation = false;
     hoverSelectionEnabled = false;
+    markedUrls.clear();
     refresh();
     requestAnimationFrame(() => input.focus());
   }
@@ -282,7 +285,8 @@
   function render() {
     const resultsLabel = `${results.length} ${results.length === 1 ? "result" : "results"}`;
     const tabsLabel = `${totalTabCount} ${totalTabCount === 1 ? "tab" : "tabs"} indexed`;
-    footerHint.textContent = `${resultsLabel} · ${tabsLabel}`;
+    const markedLabel = markedUrls.size ? ` · ${markedUrls.size} marked` : "";
+    footerHint.textContent = `${resultsLabel} · ${tabsLabel}${markedLabel}`;
     if (!results.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -308,8 +312,9 @@
         previousKind = result.kind;
       }
 
+      const marked = isMarkable(result) && markedUrls.has(result.url);
       const button = document.createElement("div");
-      button.className = `item${index === selectedIndex ? " selected" : ""}${result.closeable ? " closeable" : ""}`;
+      button.className = `item${index === selectedIndex ? " selected" : ""}${result.closeable ? " closeable" : ""}${marked ? " marked" : ""}`;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(index === selectedIndex));
       button.addEventListener("mouseenter", () => {
@@ -319,7 +324,9 @@
 
       const icon = document.createElement("span");
       icon.className = "icon";
-      if (result.favIconUrl) {
+      if (marked) {
+        icon.textContent = "✓";
+      } else if (result.favIconUrl) {
         const image = document.createElement("img");
         image.src = result.favIconUrl;
         image.alt = "";
@@ -384,6 +391,9 @@
       if (resetConfirmation) {
         resetConfirmation = false;
         refresh();
+      } else if (markedUrls.size) {
+        markedUrls.clear();
+        render();
       } else {
         close();
       }
@@ -395,16 +405,40 @@
       event.preventDefault();
       hoverSelectionEnabled = false;
       select((selectedIndex - 1 + results.length) % results.length);
+    } else if (event.key === "Tab") {
+      event.preventDefault();
+      if (!results.length) return;
+      const current = results[selectedIndex];
+      if (isMarkable(current)) {
+        if (markedUrls.has(current.url)) markedUrls.delete(current.url);
+        else markedUrls.add(current.url);
+      }
+      hoverSelectionEnabled = false;
+      selectedIndex = event.shiftKey
+        ? (selectedIndex - 1 + results.length) % results.length
+        : (selectedIndex + 1) % results.length;
+      render();
     } else if (event.key === "Enter") {
       event.preventDefault();
-      execute(selectedIndex);
+      if (markedUrls.size) openMarked();
+      else execute(selectedIndex);
     }
+  }
+
+  function isMarkable(result) {
+    return Boolean(result && result.action.type === "OPEN_URL" && result.url);
+  }
+
+  async function openMarked() {
+    const urls = [...markedUrls];
+    close();
+    await chrome.runtime.sendMessage({ type: "OPEN_URLS", urls }).catch(() => null);
   }
 
   function onGlobalKeyDown(event) {
     if (!isOpen || event.isComposing) return;
 
-    if (["Escape", "ArrowDown", "ArrowUp", "Enter"].includes(event.key)) {
+    if (["Escape", "ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key)) {
       suppressedKeys.add(keyIdentifier(event));
       event.stopImmediatePropagation();
       onKeyDown(event);

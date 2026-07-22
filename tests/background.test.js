@@ -8,6 +8,7 @@ let commandListener;
 let offscreenOpen = false;
 const clipboardMessages = [];
 const tabMessages = [];
+const createdTabs = [];
 
 const tabs = new Map([
   [1, {
@@ -62,7 +63,7 @@ global.chrome = {
     }
   },
   tabs: {
-    async create() {},
+    async create(properties = {}) { createdTabs.push(properties); },
     async get(id) { return tabs.get(id); },
     async query() { return Array.from(tabs.values()); },
     async remove() {},
@@ -127,4 +128,22 @@ test("copy-current-url extension command uses its supplied active tab", async ()
   commandListener("copy-current-url", tabs.get(2));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(clipboardMessages.at(-1).text, "https://private.example/");
+});
+
+test("OPEN_URLS opens every URL as a background tab in order", async () => {
+  createdTabs.length = 0;
+  const response = await send({ type: "OPEN_URLS", urls: ["https://a.test/", "https://b.test/"] });
+  assert.equal(response.ok, true);
+  assert.deepEqual(createdTabs, [
+    { url: "https://a.test/", active: false },
+    { url: "https://b.test/", active: false }
+  ]);
+});
+
+test("OPEN_URLS rejects empty or invalid URL lists", async () => {
+  createdTabs.length = 0;
+  assert.equal((await send({ type: "OPEN_URLS", urls: [] })).ok, false);
+  assert.equal((await send({ type: "OPEN_URLS", urls: [42, ""] })).ok, false);
+  assert.equal((await send({ type: "OPEN_URLS" })).ok, false);
+  assert.equal(createdTabs.length, 0);
 });
