@@ -2,6 +2,8 @@
   if (window.__quickPaletteLoaded) return;
   window.__quickPaletteLoaded = true;
   const isStandalone = location.protocol === "chrome-extension:";
+  const isMac = /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent);
+  const jumpKeyLabel = isMac ? "⌘" : "^";
 
   const COMMANDS = [
     { title: "New tab", subtitle: "Open a blank tab", icon: "+", keywords: "create open", action: { type: "NEW_TAB" } },
@@ -23,6 +25,7 @@
   let footerHint;
   let isOpen = false;
   let results = [];
+  let totalTabCount = 0;
   let selectedIndex = 0;
   let requestSequence = 0;
   let resetConfirmation = false;
@@ -43,87 +46,78 @@
     shadow = host.attachShadow({ mode: "closed" });
     shadow.innerHTML = `
       <style>
-        :host { all: initial; color-scheme: light dark; }
+        :host {
+          all: initial; color-scheme: dark;
+          --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+          --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
         *, *::before, *::after { box-sizing: border-box; }
         .backdrop {
           position: fixed; inset: 0; z-index: 2147483647;
           display: grid; place-items: start center;
           padding: min(18vh, 150px) 20px 24px;
-          background: rgba(14, 16, 20, .32);
-          font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          background: rgba(8, 10, 13, .45);
+          font-family: var(--sans);
           animation: fade-in 110ms ease-out;
         }
-        .backdrop.standalone { padding: 12px; background: #18191b; }
+        .backdrop.standalone { padding: 12px; background: #0c0e12; }
         .backdrop.standalone .panel { width: 100%; }
-        .backdrop.standalone .results { max-height: calc(100vh - 124px); }
+        .backdrop.standalone .results { max-height: calc(100vh - 122px); }
         .panel {
-          width: min(680px, 100%); overflow: hidden;
-          background: rgba(250, 250, 249, .98); color: #191918;
-          border: 1px solid rgba(20, 20, 18, .14); border-radius: 8px;
-          box-shadow: 0 24px 70px rgba(0, 0, 0, .28), 0 2px 8px rgba(0, 0, 0, .12);
+          width: min(660px, 100%); overflow: hidden;
+          background: #15171c; color: #d8d6ce;
+          border: 1px solid #2b2f37; border-radius: 6px;
+          box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
           transform-origin: 50% 0; animation: enter 130ms ease-out;
+          font-variant-numeric: tabular-nums;
         }
-        .search { display: flex; align-items: center; min-height: 62px; padding: 0 18px; border-bottom: 1px solid #dededb; }
-        .search-mark { flex: 0 0 auto; width: 20px; height: 20px; margin-right: 13px; border: 2px solid #777772; border-radius: 50%; position: relative; }
-        .search-mark::after { content: ""; position: absolute; width: 7px; height: 2px; right: -5px; bottom: -2px; background: #777772; transform: rotate(45deg); border-radius: 2px; }
-        input { all: unset; min-width: 0; flex: 1; color: #191918; font: 500 18px/1.4 inherit; letter-spacing: 0; caret-color: #2968d8; }
-        input::placeholder { color: #8b8b86; opacity: 1; }
-        .key { flex: 0 0 auto; margin-left: 12px; padding: 3px 6px; border: 1px solid #d2d2ce; border-bottom-color: #bdbdb8; border-radius: 4px; background: #f0f0ed; color: #777772; font: 600 11px/1.2 inherit; }
-        .results { max-height: min(52vh, 430px); overflow: auto; padding: 7px; scrollbar-width: thin; }
-        .section { padding: 8px 10px 5px; color: #777772; font: 700 10px/1.2 inherit; letter-spacing: .08em; text-transform: uppercase; }
-        .item { width: 100%; height: 52px; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: default; font-family: inherit; }
-        .item.selected { background: #e5e7e9; }
-        .item:hover { background: #ebedee; }
-        .icon { width: 28px; height: 28px; display: grid; place-items: center; overflow: hidden; border: 1px solid #d5d5d1; border-radius: 5px; background: #fff; color: #555550; font: 600 16px/1 inherit; }
-        .icon img { width: 18px; height: 18px; object-fit: contain; }
-        .copy { min-width: 0; }
-        .title, .subtitle { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: 0; }
-        .title { color: #20201e; font: 600 14px/1.35 inherit; }
-        .subtitle { margin-top: 2px; color: #777772; font: 400 12px/1.3 inherit; }
-        .tail { min-width: 76px; display: grid; place-items: center end; margin-left: 12px; }
-        .meta { grid-area: 1 / 1; color: #82827d; font: 500 11px/1.2 inherit; white-space: nowrap; }
-        .close { width: 26px; height: 26px; display: none; border: 0; border-radius: 4px; background: transparent; color: #656560; font: 18px/1 inherit; cursor: pointer; }
-        .item:hover .close, .item.selected .close { display: grid; grid-area: 1 / 1; place-items: center; }
-        .item:hover .tail .meta, .item.selected .tail .meta { visibility: hidden; }
-        .close:hover { background: #d3d5d7; color: #20201e; }
-        .empty { padding: 44px 20px; color: #777772; text-align: center; font: 500 13px/1.5 inherit; }
-        .footer { height: 36px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-top: 1px solid #dededb; color: #777772; font: 500 10px/1 inherit; }
-        .footer span { display: flex; align-items: center; gap: 8px; }
-        .footer b { color: #4f4f4b; font-weight: 650; }
+        .search { display: flex; align-items: center; min-height: 46px; padding: 0 14px; gap: 10px; border-bottom: 1px solid #23262e; }
+        .prompt { flex: 0 0 auto; color: #ffb454; font: 700 14px/1 var(--mono); }
+        input { all: unset; min-width: 0; flex: 1; color: #e8e6df; font: 400 15px/1.4 var(--mono); caret-color: #ffb454; }
+        input::placeholder { color: #58606e; opacity: 1; }
+        .esc { flex: 0 0 auto; padding: 3px 5px; border: 1px solid #333a45; border-radius: 3px; background: #1c1f26; color: #8a92a0; font: 500 9.5px/1.2 var(--mono); }
+        .results { max-height: min(52vh, 430px); overflow: auto; padding: 5px; scrollbar-width: thin; scrollbar-color: #333a45 transparent; }
+        .section { padding: 9px 8px 5px; color: #667081; font: 600 10px/1.2 var(--mono); letter-spacing: .12em; text-transform: lowercase; }
+        .item { width: 100%; height: 38px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 0 9px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; cursor: default; font-family: var(--sans); }
+        .item:hover { background: #1b1e24; }
+        .item.selected { background: rgba(255, 180, 84, .09); box-shadow: inset 2px 0 0 #ffb454; }
+        .icon { width: 20px; height: 20px; display: grid; place-items: center; overflow: hidden; color: #8a92a0; font: 600 11px/1 var(--mono); }
+        .icon img { width: 16px; height: 16px; object-fit: contain; }
+        .title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e8e6df; font: 500 13px/1.4 var(--sans); }
+        .item.selected .title { color: #ffcf8d; }
+        .tail { display: flex; align-items: center; gap: 8px; }
+        .sub { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #667081; font: 400 10.5px/1.2 var(--mono); }
+        .meta { color: #58606e; font: 400 10px/1.2 var(--mono); text-transform: lowercase; white-space: nowrap; }
+        .key { padding: 2px 5px; border: 1px solid #333a45; border-bottom-width: 2px; border-radius: 3px; background: #1d2129; color: #9aa3b2; font: 500 10px/1.2 var(--mono); }
+        .key-return { display: none; }
+        .item.selected .key-num { display: none; }
+        .item.selected .key-return { display: inline-block; }
+        .close { width: 22px; height: 22px; display: none; border: 0; border-radius: 3px; background: transparent; color: #8a92a0; font: 15px/1 var(--sans); cursor: pointer; }
+        .item.closeable:hover .key { display: none; }
+        .item.closeable:hover .close { display: grid; place-items: center; }
+        .close:hover { background: #262b33; color: #e8e6df; }
+        .empty { padding: 40px 20px; color: #667081; text-align: center; font: 400 11.5px/1.6 var(--mono); }
+        .footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid #23262e; color: #667081; font: 400 10.5px/1.4 var(--mono); }
+        .footer b { color: #9aa3b2; font-weight: 500; }
         @keyframes fade-in { from { opacity: 0; } }
-        @keyframes enter { from { opacity: 0; transform: translateY(-7px) scale(.99); } }
-        @media (prefers-color-scheme: dark) {
-          .backdrop { background: rgba(0, 0, 0, .5); }
-          .panel { background: rgba(35, 36, 37, .98); color: #f0f0ed; border-color: #4d4e50; box-shadow: 0 24px 80px rgba(0, 0, 0, .55); }
-          .search, .footer { border-color: #4a4b4d; }
-          input { color: #f5f5f1; caret-color: #72a2f5; }
-          input::placeholder, .section, .subtitle, .meta, .footer { color: #9d9e9f; }
-          .key { background: #303133; color: #a9aaab; border-color: #555658; }
-          .item.selected { background: #484a4d; }
-          .item:hover { background: #424447; }
-          .title { color: #f2f2ef; }
-          .icon { background: #2d2e30; color: #d7d7d3; border-color: #555658; }
-          .close { color: #bebfbe; }
-          .close:hover { background: #5b5d60; color: #fff; }
-          .footer b { color: #d0d0cc; }
-        }
+        @keyframes enter { from { opacity: 0; transform: translateY(-6px) scale(.995); } }
         @media (max-width: 540px) {
           .backdrop { padding: 10px; }
           .panel { width: 100%; }
-          .results { max-height: calc(100vh - 130px); }
-          .meta { display: none; }
+          .results { max-height: calc(100vh - 128px); }
+          .sub, .meta { display: none; }
         }
         @media (prefers-reduced-motion: reduce) { .backdrop, .panel { animation: none; } }
       </style>
       <div class="backdrop${isStandalone ? " standalone" : ""}" role="presentation">
         <section class="panel" role="dialog" aria-modal="true" aria-label="Quick Palette">
           <div class="search">
-            <span class="search-mark" aria-hidden="true"></span>
+            <span class="prompt" aria-hidden="true">❯</span>
             <input type="text" role="combobox" aria-expanded="true" aria-controls="quick-palette-results" aria-autocomplete="list" placeholder="Search tabs, history, or the web" autocomplete="off" spellcheck="false">
-            <span class="key">ESC</span>
+            <span class="esc">esc</span>
           </div>
           <div id="quick-palette-results" class="results" role="listbox"></div>
-          <div class="footer"><span class="footer-hint">Type to search</span><span><b>↑↓</b> Navigate <b>↵</b> Open</span></div>
+          <div class="footer"><span class="footer-hint">Type to search</span><span><b>↑↓</b> move · <b>${jumpKeyLabel}n</b> jump · <b>↵</b> open</span></div>
         </section>
       </div>`;
     input = shadow.querySelector("input");
@@ -175,6 +169,7 @@
       contextTabId
     }).catch(() => null);
     if (!isOpen || sequence !== requestSequence || !response?.ok) return;
+    totalTabCount = response.tabs.length;
     results = buildResults(query, response);
     selectedIndex = Math.min(selectedIndex, Math.max(0, results.length - 1));
     render();
@@ -186,7 +181,7 @@
     const normalized = normalize(query);
 
     const matchingCommands = COMMANDS
-      .map((command) => ({ ...command, kind: "Command", score: fuzzyScore(normalized, `${command.title} ${command.keywords}`) }))
+      .map((command) => ({ ...command, kind: "Commands", score: fuzzyScore(normalized, `${command.title} ${command.keywords}`) }))
       .filter((command) => !normalized || command.score > 0)
       .sort((a, b) => b.score - a.score);
 
@@ -202,7 +197,7 @@
         url: tab.url,
         favIconUrl: tab.favIconUrl,
         kind: "Open tabs",
-        meta: tab.id === data.currentTabId ? "Current tab" : (tab.windowId === data.currentWindowId ? "This window" : "Other window"),
+        meta: tab.id === data.currentTabId ? "current" : (tab.windowId === data.currentWindowId ? "" : "other window"),
         closeable: true,
         tabId: tab.id,
         action: { type: "ACTIVATE_TAB", tabId: tab.id, windowId: tab.windowId },
@@ -216,7 +211,7 @@
     if (query) {
       const goResult = {
         title: looksLikeUrl(query) ? `Open ${query}` : `Search for “${query}”`,
-        subtitle: looksLikeUrl(query) ? "Open in a new tab" : "Search with your default search engine",
+        subtitle: looksLikeUrl(query) ? "open in new tab" : "web search",
         icon: looksLikeUrl(query) ? "↗" : "⌕",
         kind: suggestedTab ? "Suggested" : "Go",
         action: looksLikeUrl(query)
@@ -271,7 +266,9 @@
   }
 
   function render() {
-    footerHint.textContent = `${results.length} ${results.length === 1 ? "result" : "results"}`;
+    const resultsLabel = `${results.length} ${results.length === 1 ? "result" : "results"}`;
+    const tabsLabel = `${totalTabCount} ${totalTabCount === 1 ? "tab" : "tabs"} indexed`;
+    footerHint.textContent = `${resultsLabel} · ${tabsLabel}`;
     if (!results.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -280,19 +277,25 @@
       return;
     }
 
+    const sectionCounts = {};
+    for (const result of results) {
+      sectionCounts[result.kind] = (sectionCounts[result.kind] || 0) + 1;
+    }
+
     const fragment = document.createDocumentFragment();
     let previousKind = "";
     results.forEach((result, index) => {
       if (result.kind !== previousKind) {
         const section = document.createElement("div");
         section.className = "section";
-        section.textContent = result.kind;
+        const count = sectionCounts[result.kind];
+        section.textContent = count > 1 ? `${result.kind} · ${count}` : result.kind;
         fragment.appendChild(section);
         previousKind = result.kind;
       }
 
       const button = document.createElement("div");
-      button.className = `item${index === selectedIndex ? " selected" : ""}`;
+      button.className = `item${index === selectedIndex ? " selected" : ""}${result.closeable ? " closeable" : ""}`;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(index === selectedIndex));
       button.addEventListener("mouseenter", () => select(index, false));
@@ -310,43 +313,49 @@
         icon.textContent = result.icon || fallbackLetter(result.title);
       }
 
-      const copy = document.createElement("span");
-      copy.className = "copy";
       const title = document.createElement("span");
       title.className = "title";
       title.textContent = result.title;
-      const subtitle = document.createElement("span");
-      subtitle.className = "subtitle";
-      subtitle.textContent = result.subtitle || "";
-      copy.append(title, subtitle);
-      button.append(icon, copy);
 
-      if (result.closeable || result.meta) {
-        const tail = document.createElement("span");
-        tail.className = "tail";
-        if (result.meta) {
-          const meta = document.createElement("span");
-          meta.className = "meta";
-          meta.textContent = result.meta;
-          tail.appendChild(meta);
-        }
-        if (result.closeable) {
-          const closeButton = document.createElement("button");
-          closeButton.type = "button";
-          closeButton.className = "close";
-          closeButton.title = "Close tab";
-          closeButton.setAttribute("aria-label", `Close ${result.title}`);
-          closeButton.textContent = "×";
-          closeButton.addEventListener("click", async (event) => {
-            event.stopPropagation();
-            await chrome.runtime.sendMessage({ type: "CLOSE_TAB", tabId: result.tabId });
-            refresh();
-          });
-          tail.appendChild(closeButton);
-        }
-        button.appendChild(tail);
+      const tail = document.createElement("span");
+      tail.className = "tail";
+      if (result.subtitle) {
+        const sub = document.createElement("span");
+        sub.className = "sub";
+        sub.textContent = result.subtitle;
+        tail.appendChild(sub);
+      }
+      if (result.meta) {
+        const meta = document.createElement("span");
+        meta.className = "meta";
+        meta.textContent = result.meta;
+        tail.appendChild(meta);
+      }
+      if (index < 9) {
+        const jumpKey = document.createElement("span");
+        jumpKey.className = "key key-num";
+        jumpKey.textContent = `${jumpKeyLabel}${index + 1}`;
+        const returnKey = document.createElement("span");
+        returnKey.className = "key key-return";
+        returnKey.textContent = "↵";
+        tail.append(jumpKey, returnKey);
+      }
+      if (result.closeable) {
+        const closeButton = document.createElement("button");
+        closeButton.type = "button";
+        closeButton.className = "close";
+        closeButton.title = "Close tab";
+        closeButton.setAttribute("aria-label", `Close ${result.title}`);
+        closeButton.textContent = "×";
+        closeButton.addEventListener("click", async (event) => {
+          event.stopPropagation();
+          await chrome.runtime.sendMessage({ type: "CLOSE_TAB", tabId: result.tabId });
+          refresh();
+        });
+        tail.appendChild(closeButton);
       }
 
+      button.append(icon, title, tail);
       fragment.appendChild(button);
     });
     resultsElement.replaceChildren(fragment);
@@ -381,6 +390,18 @@
       suppressedKeys.add(keyIdentifier(event));
       event.stopImmediatePropagation();
       onKeyDown(event);
+      return;
+    }
+
+    const jumpModifier = isMac
+      ? event.metaKey && !event.ctrlKey
+      : event.ctrlKey && !event.metaKey;
+    if (jumpModifier && !event.altKey && !event.shiftKey && /^[1-9]$/.test(event.key)) {
+      suppressedKeys.add(keyIdentifier(event));
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const jumpIndex = Number(event.key) - 1;
+      if (jumpIndex < results.length) execute(jumpIndex);
       return;
     }
 
@@ -488,7 +509,7 @@
     selectedIndex = 0;
     results = [{
       title: "Reset learned tab ranking?",
-      subtitle: "Press Enter again to clear saved tab preferences",
+      subtitle: "press ↵ again to confirm",
       icon: "↺",
       kind: "Confirm",
       action: { type: "RESET_TAB_RANKING" }
@@ -512,13 +533,13 @@
         :host { all: initial; }
         div {
           position: fixed; top: 18px; right: 18px; z-index: 2147483647;
-          padding: 9px 12px; border: 1px solid rgba(20, 20, 18, .18); border-radius: 6px;
-          background: #202124; color: #f5f5f2;
-          box-shadow: 0 8px 30px rgba(0, 0, 0, .28);
-          font: 600 12px/1.2 Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          padding: 8px 12px; border: 1px solid #2b2f37; border-left: 2px solid #ffb454; border-radius: 4px;
+          background: #15171c; color: #d8d6ce;
+          box-shadow: 0 8px 30px rgba(0, 0, 0, .4);
+          font: 500 11px/1.2 ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
           letter-spacing: 0; animation: toast-in 120ms ease-out;
         }
-        div.error { background: #9f2f2f; }
+        div.error { border-left-color: #e5534b; color: #f0b8b3; }
         @keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } }
         @media (prefers-reduced-motion: reduce) { div { animation: none; } }
       </style>
