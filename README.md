@@ -11,6 +11,10 @@ A keyboard-first command palette for Chrome, inspired by Arc's command bar. It c
 - Open common Chrome pages such as History, Downloads, Bookmarks, Extensions, and Settings
 - Close open tabs from the result list
 
+## Author
+
+Anoop K. Chandran
+
 ## Install
 
 1. Open `chrome://extensions` in Chrome.
