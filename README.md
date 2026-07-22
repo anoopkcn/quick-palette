@@ -1,6 +1,10 @@
 # Quick Palette
 
-A keyboard-first command palette for Chrome, inspired by Arc's command bar. It can:
+A keyboard-first command palette for Chrome, inspired by Arc's command bar.
+
+![Quick Palette open over a webpage, searching for "git"](assets/demo.png)
+
+It can:
 
 - Switch to any open tab, including tabs in other windows
 - Rank tabs using match quality, recency, window context, pinned state, and locally learned palette choices
@@ -11,10 +15,6 @@ A keyboard-first command palette for Chrome, inspired by Arc's command bar. It c
 - Open common Chrome pages such as History, Downloads, Bookmarks, Extensions, and Settings
 - Close open tabs from the result list
 - Copy the current tab URL from the palette or a configurable keyboard shortcut
-
-## Author
-
-Anoop K. Chandran
 
 ## Install
 
