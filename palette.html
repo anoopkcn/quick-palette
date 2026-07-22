@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Quick Palette</title>
     <style>
-      /* Action popups size to their content (max 800x600), so the document
-         needs explicit dimensions. */
-      html, body { width: 680px; height: 560px; margin: 0; overflow: hidden; background: #0c0e12; }
+      /* Action popups size to their content (max 800x600): fix the width and
+         let the height follow the result list. */
+      html, body { width: 680px; margin: 0; overflow: hidden; background: #15171c; }
+      body { min-height: 96px; }
     </style>
   </head>
   <body>
