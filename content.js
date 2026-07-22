@@ -28,6 +28,7 @@
   let totalTabCount = 0;
   let selectedIndex = 0;
   let requestSequence = 0;
+  let hoverSelectionEnabled = true;
   let resetConfirmation = false;
   const suppressedKeys = new Set();
 
@@ -123,6 +124,18 @@
     input = shadow.querySelector("input");
     resultsElement = shadow.querySelector(".results");
     footerHint = shadow.querySelector(".footer-hint");
+    resultsElement.addEventListener("mousemove", (event) => {
+      // Chrome fires a synthetic mouse event (movementX/Y of 0) when the list
+      // scrolls under a stationary cursor; only genuine movement may re-enable
+      // hover selection, or scrolling by keyboard gets hijacked by the cursor.
+      if (hoverSelectionEnabled || (event.movementX === 0 && event.movementY === 0)) return;
+      hoverSelectionEnabled = true;
+      const item = event.target.closest?.(".item");
+      if (item) {
+        const index = Array.from(shadow.querySelectorAll(".item")).indexOf(item);
+        if (index >= 0) select(index, false);
+      }
+    });
     shadow.querySelector(".backdrop").addEventListener("mousedown", (event) => {
       if (event.target.classList.contains("backdrop")) close();
     });
@@ -147,6 +160,7 @@
     input.value = "";
     selectedIndex = 0;
     resetConfirmation = false;
+    hoverSelectionEnabled = false;
     refresh();
     requestAnimationFrame(() => input.focus());
   }
@@ -298,7 +312,9 @@
       button.className = `item${index === selectedIndex ? " selected" : ""}${result.closeable ? " closeable" : ""}`;
       button.setAttribute("role", "option");
       button.setAttribute("aria-selected", String(index === selectedIndex));
-      button.addEventListener("mouseenter", () => select(index, false));
+      button.addEventListener("mouseenter", () => {
+        if (hoverSelectionEnabled) select(index, false);
+      });
       button.addEventListener("click", () => execute(index));
 
       const icon = document.createElement("span");
@@ -373,9 +389,11 @@
       }
     } else if (event.key === "ArrowDown") {
       event.preventDefault();
+      hoverSelectionEnabled = false;
       select((selectedIndex + 1) % results.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
+      hoverSelectionEnabled = false;
       select((selectedIndex - 1 + results.length) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
