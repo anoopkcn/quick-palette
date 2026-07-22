@@ -38,9 +38,14 @@ const tabs = new Map([
 global.importScripts = () => { global.QuickPaletteRanking = ranking; };
 global.chrome = {
   action: { onClicked: { addListener() {} } },
-  bookmarks: { search: async () => [] },
+  bookmarks: {
+    async search() { return [{ id: "b1", title: "Searched bookmark", url: "https://bookmark.test/searched" }]; },
+    async getRecent() { return [{ id: "b2", title: "Recent bookmark", url: "https://bookmark.test/recent", dateAdded: 7 }]; }
+  },
   commands: { onCommand: { addListener(listener) { commandListener = listener; } } },
-  history: { search: async () => [] },
+  history: {
+    async search() { return [{ id: "h1", title: "Visited page", url: "https://history.test/visited", lastVisitTime: 5 }]; }
+  },
   runtime: {
     async getContexts() { return offscreenOpen ? [{ contextType: "OFFSCREEN_DOCUMENT" }] : []; },
     getURL: (path) => `chrome-extension://test/${path}`,
@@ -128,6 +133,21 @@ test("copy-current-url extension command uses its supplied active tab", async ()
   commandListener("copy-current-url", tabs.get(2));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(clipboardMessages.at(-1).text, "https://private.example/");
+});
+
+test("history browse mode returns history items and no tabs, even without a query", async () => {
+  const response = await send({ type: "GET_PALETTE_DATA", query: "", mode: "history" });
+  assert.equal(response.ok, true);
+  assert.equal(response.tabs.length, 0);
+  assert.equal(response.history[0].url, "https://history.test/visited");
+});
+
+test("bookmarks browse mode uses recent bookmarks when the query is empty", async () => {
+  const empty = await send({ type: "GET_PALETTE_DATA", query: "", mode: "bookmarks" });
+  assert.equal(empty.bookmarks[0].url, "https://bookmark.test/recent");
+  assert.equal(empty.bookmarks[0].dateAdded, 7);
+  const queried = await send({ type: "GET_PALETTE_DATA", query: "book", mode: "bookmarks" });
+  assert.equal(queried.bookmarks[0].url, "https://bookmark.test/searched");
 });
 
 test("OPEN_URLS opens every URL as a background tab in order", async () => {

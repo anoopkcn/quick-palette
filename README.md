@@ -9,10 +9,11 @@ It can:
 - Switch to any open tab, including tabs in other windows
 - Rank tabs using match quality, recency, window context, pinned state, and locally learned palette choices
 - Search browsing history and bookmarks
+- Browse history and bookmarks inside the palette and pick or mark items to open
 - Search with Chrome's default search engine
 - Open URLs directly
 - Create tabs, windows, and incognito windows
-- Open common Chrome pages such as History, Downloads, Bookmarks, Extensions, and Settings
+- Open common Chrome pages such as Downloads, Extensions, and Settings
 - Close open tabs from the result list
 - Copy the current tab URL from the palette or a configurable keyboard shortcut
 
@@ -33,6 +34,7 @@ The **Copy current tab URL** shortcut is unassigned by default. Assign any suppo
 - Use the up/down arrow keys to move through results.
 - Press Enter to open the selected result.
 - Press Tab to mark several history or bookmark results (Shift+Tab marks and moves up). With marks set, Enter opens every marked result in a background tab, and Escape clears the marks.
+- Select **History** or **Bookmarks** to browse those items inside the palette — type to filter, mark and open as usual, and press Backspace (with an empty query) or Escape to go back.
 - Press Escape or click outside the palette to close it.
 - Hover a tab result and click the close button to close that tab.
 - Search for **Reset learned tab ranking** to clear locally stored ranking preferences.

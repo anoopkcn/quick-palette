@@ -108,7 +108,7 @@ async function handleMessage(message, sender) {
       const contextTab = message.contextTabId
         ? await chrome.tabs.get(message.contextTabId).catch(() => sender.tab)
         : sender.tab;
-      return getPaletteData(message.query || "", contextTab);
+      return getPaletteData(message.query || "", contextTab, message.mode);
     }
     case "ACTIVATE_TAB": {
       const selectedTab = await chrome.tabs.get(message.tabId);
@@ -171,8 +171,28 @@ async function handleMessage(message, sender) {
   }
 }
 
-async function getPaletteData(query, senderTab) {
+async function getPaletteData(query, senderTab, mode) {
   const normalizedQuery = query.trim();
+  const base = {
+    currentTabId: senderTab?.id,
+    currentWindowId: senderTab?.windowId,
+    tabs: [],
+    history: [],
+    bookmarks: []
+  };
+
+  if (mode === "history") {
+    const history = await chrome.history.search({ text: normalizedQuery, maxResults: 100, startTime: 0 });
+    return { ...base, history: mapHistoryItems(history) };
+  }
+
+  if (mode === "bookmarks") {
+    const bookmarks = normalizedQuery
+      ? await chrome.bookmarks.search(normalizedQuery)
+      : await chrome.bookmarks.getRecent(100);
+    return { ...base, bookmarks: mapBookmarkItems(bookmarks, 100) };
+  }
+
   const tabsPromise = chrome.tabs.query({});
   const historyPromise = normalizedQuery.length >= 2
     ? chrome.history.search({ text: normalizedQuery, maxResults: 40, startTime: 0 })
@@ -190,8 +210,7 @@ async function getPaletteData(query, senderTab) {
   ]);
 
   return {
-    currentTabId: senderTab?.id,
-    currentWindowId: senderTab?.windowId,
+    ...base,
     tabs: tabs
       .filter((tab) => tab.id && tab.url && !tab.url.startsWith(EXTENSION_ORIGIN))
       .map((tab) => ({
@@ -208,19 +227,32 @@ async function getPaletteData(query, senderTab) {
           ? 0
           : QuickPaletteRanking.preferenceScore(usageStats, tab.url)
       })),
-    history: history
-      .filter((item) => item.url)
-      .map((item) => ({
-        id: item.id,
-        title: item.title || item.url,
-        url: item.url,
-        lastVisitTime: item.lastVisitTime || 0
-      })),
-    bookmarks: bookmarks
-      .filter((item) => item.url)
-      .slice(0, 40)
-      .map((item) => ({ id: item.id, title: item.title || item.url, url: item.url }))
+    history: mapHistoryItems(history),
+    bookmarks: mapBookmarkItems(bookmarks, 40)
   };
+}
+
+function mapHistoryItems(items) {
+  return items
+    .filter((item) => item.url)
+    .map((item) => ({
+      id: item.id,
+      title: item.title || item.url,
+      url: item.url,
+      lastVisitTime: item.lastVisitTime || 0
+    }));
+}
+
+function mapBookmarkItems(items, limit) {
+  return items
+    .filter((item) => item.url)
+    .slice(0, limit)
+    .map((item) => ({
+      id: item.id,
+      title: item.title || item.url,
+      url: item.url,
+      dateAdded: item.dateAdded || 0
+    }));
 }
 
 async function readUsageStats() {

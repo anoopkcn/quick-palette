@@ -9,9 +9,9 @@
     { title: "New tab", subtitle: "Open a blank tab", icon: "+", keywords: "create open", action: { type: "NEW_TAB" } },
     { title: "New window", subtitle: "Open a browser window", icon: "□", keywords: "create open", action: { type: "NEW_WINDOW" } },
     { title: "New incognito window", subtitle: "Open a private browser window", icon: "◐", keywords: "private create", action: { type: "NEW_INCOGNITO_WINDOW" } },
-    { title: "History", subtitle: "Open Chrome history", icon: "↶", keywords: "recent visited", action: { type: "OPEN_CHROME_PAGE", page: "history" } },
+    { title: "History", subtitle: "Browse and open history items", icon: "↶", keywords: "recent visited browse", action: { type: "BROWSE", mode: "history" } },
     { title: "Downloads", subtitle: "Open Chrome downloads", icon: "↓", keywords: "files", action: { type: "OPEN_CHROME_PAGE", page: "downloads" } },
-    { title: "Bookmarks", subtitle: "Open bookmark manager", icon: "★", keywords: "saved favorites", action: { type: "OPEN_CHROME_PAGE", page: "bookmarks" } },
+    { title: "Bookmarks", subtitle: "Browse and open bookmarks", icon: "★", keywords: "saved favorites browse", action: { type: "BROWSE", mode: "bookmarks" } },
     { title: "Extensions", subtitle: "Manage Chrome extensions", icon: "◇", keywords: "plugins addons", action: { type: "OPEN_CHROME_PAGE", page: "extensions" } },
     { title: "Settings", subtitle: "Open Chrome settings", icon: "⚙", keywords: "preferences", action: { type: "OPEN_CHROME_PAGE", page: "settings" } },
     { title: "Copy current URL", subtitle: "Copy this tab's address to the clipboard", icon: "⧉", keywords: "clipboard link address", action: { type: "COPY_CURRENT_URL" } },
@@ -30,8 +30,11 @@
   let requestSequence = 0;
   let hoverSelectionEnabled = true;
   let resetConfirmation = false;
+  let browseMode = null;
+  let scopeChip;
   const markedUrls = new Set();
   const suppressedKeys = new Set();
+  const DEFAULT_PLACEHOLDER = "Search tabs, history, or the web";
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "TOGGLE_PALETTE") toggle();
@@ -78,6 +81,8 @@
         input { all: unset; min-width: 0; flex: 1; color: #e8e6df; font: 400 15px/1.4 var(--mono); caret-color: #ffb454; }
         input::placeholder { color: #58606e; opacity: 1; }
         .esc { flex: 0 0 auto; padding: 3px 5px; border: 1px solid #333a45; border-radius: 3px; background: #1c1f26; color: #8a92a0; font: 500 9.5px/1.2 var(--mono); }
+        .scope { flex: 0 0 auto; padding: 2px 6px; border: 1px solid rgba(255, 180, 84, .4); border-radius: 3px; background: rgba(255, 180, 84, .08); color: #ffb454; font: 600 10px/1.4 var(--mono); text-transform: lowercase; }
+        .scope[hidden] { display: none; }
         .results { max-height: min(52vh, 430px); overflow: auto; padding: 5px; scrollbar-width: thin; scrollbar-color: #333a45 transparent; }
         .section { padding: 9px 8px 5px; color: #667081; font: 600 10px/1.2 var(--mono); letter-spacing: .12em; text-transform: lowercase; }
         .item { width: 100%; height: 38px; display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 0 9px; border: 0; border-radius: 3px; background: transparent; color: inherit; text-align: left; cursor: default; font-family: var(--sans); }
@@ -116,6 +121,7 @@
         <section class="panel" role="dialog" aria-modal="true" aria-label="Quick Palette">
           <div class="search">
             <span class="prompt" aria-hidden="true">❯</span>
+            <span class="scope" hidden></span>
             <input type="text" role="combobox" aria-expanded="true" aria-controls="quick-palette-results" aria-autocomplete="list" placeholder="Search tabs, history, or the web" autocomplete="off" spellcheck="false">
             <span class="esc">esc</span>
           </div>
@@ -124,6 +130,7 @@
         </section>
       </div>`;
     input = shadow.querySelector("input");
+    scopeChip = shadow.querySelector(".scope");
     resultsElement = shadow.querySelector(".results");
     footerHint = shadow.querySelector(".footer-hint");
     resultsElement.addEventListener("mousemove", (event) => {
@@ -164,8 +171,24 @@
     resetConfirmation = false;
     hoverSelectionEnabled = false;
     markedUrls.clear();
+    browseMode = null;
+    scopeChip.hidden = true;
+    input.placeholder = DEFAULT_PLACEHOLDER;
     refresh();
     requestAnimationFrame(() => input.focus());
+  }
+
+  function setBrowseMode(mode) {
+    browseMode = mode;
+    scopeChip.hidden = !mode;
+    scopeChip.textContent = mode || "";
+    input.placeholder = mode === "history"
+      ? "Search history"
+      : mode === "bookmarks" ? "Search bookmarks" : DEFAULT_PLACEHOLDER;
+    input.value = "";
+    selectedIndex = 0;
+    refresh();
+    input.focus({ preventScroll: true });
   }
 
   function close() {
@@ -183,7 +206,8 @@
     const response = await chrome.runtime.sendMessage({
       type: "GET_PALETTE_DATA",
       query,
-      contextTabId
+      contextTabId,
+      mode: browseMode || undefined
     }).catch(() => null);
     if (!isOpen || sequence !== requestSequence || !response?.ok) return;
     totalTabCount = response.tabs.length;
@@ -193,6 +217,46 @@
   }
 
   function buildResults(query, data) {
+    if (browseMode === "history") {
+      const items = data.history.slice(0, 59).map((historyItem) => ({
+        title: historyItem.title,
+        subtitle: displayUrl(historyItem.url),
+        url: historyItem.url,
+        icon: "↶",
+        kind: "History",
+        meta: relativeTime(historyItem.lastVisitTime),
+        action: { type: "OPEN_URL", url: historyItem.url }
+      }));
+      items.push({
+        title: "Open Chrome history page",
+        subtitle: "chrome://history",
+        icon: "↗",
+        kind: "More",
+        action: { type: "OPEN_CHROME_PAGE", page: "history" }
+      });
+      return items;
+    }
+
+    if (browseMode === "bookmarks") {
+      const items = data.bookmarks.slice(0, 59).map((bookmark) => ({
+        title: bookmark.title,
+        subtitle: displayUrl(bookmark.url),
+        url: bookmark.url,
+        icon: "★",
+        kind: "Bookmarks",
+        meta: bookmark.dateAdded ? relativeTime(bookmark.dateAdded) : "",
+        action: { type: "OPEN_URL", url: bookmark.url }
+      }));
+      items.push({
+        title: "Open bookmark manager",
+        subtitle: "chrome://bookmarks",
+        icon: "↗",
+        kind: "More",
+        action: { type: "OPEN_CHROME_PAGE", page: "bookmarks" }
+      });
+      return items;
+    }
+
     const items = [];
     const seenUrls = new Set();
     const normalized = normalize(query);
@@ -286,7 +350,9 @@
     const resultsLabel = `${results.length} ${results.length === 1 ? "result" : "results"}`;
     const tabsLabel = `${totalTabCount} ${totalTabCount === 1 ? "tab" : "tabs"} indexed`;
     const markedLabel = markedUrls.size ? ` · ${markedUrls.size} marked` : "";
-    footerHint.textContent = `${resultsLabel} · ${tabsLabel}${markedLabel}`;
+    footerHint.textContent = browseMode
+      ? `${resultsLabel}${markedLabel} · ⌫ back`
+      : `${resultsLabel} · ${tabsLabel}${markedLabel}`;
     if (!results.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
@@ -394,6 +460,8 @@
       } else if (markedUrls.size) {
         markedUrls.clear();
         render();
+      } else if (browseMode) {
+        setBrowseMode(null);
       } else {
         close();
       }
@@ -468,7 +536,11 @@
       suppressedKeys.add(keyIdentifier(event));
       event.preventDefault();
       event.stopImmediatePropagation();
-      deleteFromInput(event.key === "Backspace" ? -1 : 1);
+      if (event.key === "Backspace" && browseMode && !input.value) {
+        setBrowseMode(null);
+      } else {
+        deleteFromInput(event.key === "Backspace" ? -1 : 1);
+      }
     }
   }
 
@@ -531,6 +603,10 @@
   async function execute(index) {
     const result = results[index];
     if (!result) return;
+    if (result.action.type === "BROWSE") {
+      setBrowseMode(result.action.mode);
+      return;
+    }
     if (result.action.type === "REQUEST_RESET_TAB_RANKING") {
       showResetConfirmation();
       return;
