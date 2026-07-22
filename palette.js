@@ -125,7 +125,7 @@
       selectedIndex = 0;
       scheduleRefresh();
     });
-    document.documentElement.appendChild(host);
+    document.body.appendChild(host);
   }
 
   function open() {
@@ -616,7 +616,7 @@
         @media (prefers-reduced-motion: reduce) { div { animation: none; } }
       </style>
       <div class="${success ? "" : "error"}" role="status">${success ? "URL copied" : "Could not copy URL"}</div>`;
-    document.documentElement.appendChild(toastHost);
+    document.body.appendChild(toastHost);
     setTimeout(() => toastHost.remove(), 1600);
   }
 
