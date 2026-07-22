@@ -65,9 +65,8 @@
           font-family: var(--sans);
           animation: fade-in 110ms ease-out;
         }
-        .backdrop.standalone { padding: 12px; background: #0c0e12; }
-        .backdrop.standalone .panel { width: 100%; }
-        .backdrop.standalone .results { max-height: calc(100vh - 122px); }
+        .backdrop.standalone { background: #0c0e12; }
+        .backdrop.standalone .results { max-height: min(calc(100vh - 240px), 430px); }
         .panel {
           width: min(660px, 100%); overflow: hidden;
           background: #15171c; color: #d8d6ce;
