@@ -54,7 +54,8 @@ async function sendToggle(tabId) {
     await chrome.tabs.sendMessage(tabId, { type: "TOGGLE_PALETTE" });
     return;
   } catch {
-    // Tabs open before installation do not have the declared content script yet.
+    // The palette script is injected on demand (activeTab), so a tab the
+    // palette has not been opened in yet has no listener.
   }
 
   try {
@@ -318,13 +319,19 @@ async function copyCurrentUrl(sourceTab) {
   return { copiedUrl: tab.url };
 }
 
-function notifyCopyResult(tab, success, error) {
+async function notifyCopyResult(tab, success, error) {
   if (!tab?.id) return;
-  chrome.tabs.sendMessage(tab.id, {
-    type: "SHOW_COPY_FEEDBACK",
-    success,
-    error
-  }).catch(() => undefined);
+  const message = { type: "SHOW_COPY_FEEDBACK", success, error };
+  try {
+    await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["ranking.js", "content.js"] });
+      await chrome.tabs.sendMessage(tab.id, message);
+    } catch {
+      // Chrome pages reject injection, so the toast is skipped there.
+    }
+  }
 }
 
 function writeClipboard(text) {

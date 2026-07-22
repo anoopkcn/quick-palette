@@ -6,6 +6,7 @@
   "author": "Anoop K. Chandran",
   "description": "Search the web, open pages, and jump between tabs from one keyboard-first palette.",
   "permissions": [
+    "activeTab",
     "bookmarks",
     "clipboardWrite",
     "history",
@@ -14,9 +15,6 @@
     "scripting",
     "storage",
     "tabs"
-  ],
-  "host_permissions": [
-    "<all_urls>"
   ],
   "background": {
     "service_worker": "background.js"
@@ -45,17 +43,5 @@
     "copy-current-url": {
       "description": "Copy current tab URL"
     }
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "ranking.js",
-        "content.js"
-      ],
-      "run_at": "document_start"
-    }
-  ]
+  }
 }
