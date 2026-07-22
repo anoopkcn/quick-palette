@@ -136,6 +136,7 @@
     input.addEventListener("input", (event) => {
       event.stopPropagation();
       resetConfirmation = false;
+      selectedIndex = 0;
       scheduleRefresh();
     });
     document.documentElement.appendChild(host);
@@ -205,8 +206,7 @@
         closeable: true,
         tabId: tab.id,
         action: { type: "ACTIVATE_TAB", tabId: tab.id, windowId: tab.windowId },
-        relevance: tab.relevance,
-        score: tab.rankScore
+        relevance: tab.relevance
       }));
 
     const suggestedTab = normalized
@@ -221,8 +221,7 @@
         kind: suggestedTab ? "Suggested" : "Go",
         action: looksLikeUrl(query)
           ? { type: "OPEN_URL", url: toUrl(query) }
-          : { type: "SEARCH_WEB", query },
-        score: Number.MAX_SAFE_INTEGER
+          : { type: "SEARCH_WEB", query }
       };
 
       if (suggestedTab) {
@@ -248,8 +247,7 @@
         url: bookmark.url,
         icon: "★",
         kind: "Bookmarks",
-        action: { type: "OPEN_URL", url: bookmark.url },
-        score: fuzzyScore(normalized, `${bookmark.title} ${bookmark.url}`)
+        action: { type: "OPEN_URL", url: bookmark.url }
       });
     }
 
@@ -263,8 +261,7 @@
         icon: "↶",
         kind: "History",
         meta: relativeTime(historyItem.lastVisitTime),
-        action: { type: "OPEN_URL", url: historyItem.url },
-        score: fuzzyScore(normalized, `${historyItem.title} ${historyItem.url}`)
+        action: { type: "OPEN_URL", url: historyItem.url }
       });
     }
 
@@ -274,23 +271,23 @@
   }
 
   function render() {
-    resultsElement.replaceChildren();
     footerHint.textContent = `${results.length} ${results.length === 1 ? "result" : "results"}`;
     if (!results.length) {
       const empty = document.createElement("div");
       empty.className = "empty";
       empty.textContent = "No matching tabs, history, or commands";
-      resultsElement.appendChild(empty);
+      resultsElement.replaceChildren(empty);
       return;
     }
 
+    const fragment = document.createDocumentFragment();
     let previousKind = "";
     results.forEach((result, index) => {
       if (result.kind !== previousKind) {
         const section = document.createElement("div");
         section.className = "section";
         section.textContent = result.kind;
-        resultsElement.appendChild(section);
+        fragment.appendChild(section);
         previousKind = result.kind;
       }
 
@@ -350,8 +347,9 @@
         button.appendChild(tail);
       }
 
-      resultsElement.appendChild(button);
+      fragment.appendChild(button);
     });
+    resultsElement.replaceChildren(fragment);
     selectedItem()?.scrollIntoView({ block: "nearest" });
   }
 

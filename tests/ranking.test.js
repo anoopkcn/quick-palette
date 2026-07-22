@@ -102,6 +102,16 @@ test("selection preference grows and decays over time", () => {
   assert.ok(immediate > later && later > 0);
 });
 
+test("preference scoring tolerates missing or malformed usage data", () => {
+  assert.equal(preferenceScore(undefined, "https://example.com/a", NOW), 0);
+  assert.equal(preferenceScore({ version: 99, byUrl: {}, byHost: {} }, "https://example.com/a", NOW), 0);
+  assert.equal(preferenceScore(
+    { version: 1, byUrl: { "https://example.com/a": { score: "bad" } }, byHost: null },
+    "https://example.com/a",
+    NOW
+  ), 0);
+});
+
 test("hostname learning partially transfers between pages", () => {
   const stats = recordSelection(emptyUsageStats(), "https://example.com/first", NOW);
   assert.ok(preferenceScore(stats, "https://example.com/second", NOW) > 0);

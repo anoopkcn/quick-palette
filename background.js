@@ -9,7 +9,9 @@ const CHROME_PAGES = {
 };
 const USAGE_STORAGE_KEY = "tabRankingUsage";
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
+const EXTENSION_ORIGIN = chrome.runtime.getURL("");
 let standaloneWindowId;
+let usageStatsCache;
 let usageWriteQueue = Promise.resolve();
 let offscreenCreation;
 let clipboardQueue = Promise.resolve();
@@ -65,8 +67,13 @@ async function sendToggle(tabId) {
 }
 
 async function openStandalonePalette(sourceTabId) {
+  const paletteUrl = chrome.runtime.getURL(`palette.html?tabId=${sourceTabId}`);
   if (standaloneWindowId) {
     try {
+      // Reload the palette page so it targets the new source tab instead of
+      // whichever tab it was opened for previously.
+      const [paletteTab] = await chrome.tabs.query({ windowId: standaloneWindowId });
+      if (paletteTab?.id) await chrome.tabs.update(paletteTab.id, { url: paletteUrl });
       await chrome.windows.update(standaloneWindowId, { focused: true });
       return;
     } catch {
@@ -84,7 +91,7 @@ async function openStandalonePalette(sourceTabId) {
     ? undefined
     : Math.round(parent.top + Math.max(0, (parent.height - height) / 3));
   const created = await chrome.windows.create({
-    url: chrome.runtime.getURL(`palette.html?tabId=${sourceTabId}`),
+    url: paletteUrl,
     type: "popup",
     focused: true,
     width,
@@ -176,7 +183,7 @@ async function getPaletteData(query, senderTab) {
     currentTabId: senderTab?.id,
     currentWindowId: senderTab?.windowId,
     tabs: tabs
-      .filter((tab) => tab.id && tab.url && !tab.url.startsWith(chrome.runtime.getURL("")))
+      .filter((tab) => tab.id && tab.url && !tab.url.startsWith(EXTENSION_ORIGIN))
       .map((tab) => ({
         id: tab.id,
         windowId: tab.windowId,
@@ -207,14 +214,17 @@ async function getPaletteData(query, senderTab) {
 }
 
 async function readUsageStats() {
-  const stored = await chrome.storage.local.get(USAGE_STORAGE_KEY);
-  return QuickPaletteRanking.sanitizeUsageStats
-    ? QuickPaletteRanking.sanitizeUsageStats(stored[USAGE_STORAGE_KEY])
-    : stored[USAGE_STORAGE_KEY] || QuickPaletteRanking.emptyUsageStats();
+  // This worker is the only writer, so a sanitized in-memory copy stays valid
+  // until learnFromSelection/resetLearnedRanking replace it.
+  if (!usageStatsCache) {
+    const stored = await chrome.storage.local.get(USAGE_STORAGE_KEY);
+    usageStatsCache = QuickPaletteRanking.sanitizeUsageStats(stored[USAGE_STORAGE_KEY]);
+  }
+  return usageStatsCache;
 }
 
 function learnFromSelection(tab) {
-  if (!tab?.url || tab.incognito || tab.url.startsWith(chrome.runtime.getURL(""))) {
+  if (!tab?.url || tab.incognito || tab.url.startsWith(EXTENSION_ORIGIN)) {
     return Promise.resolve();
   }
   usageWriteQueue = usageWriteQueue
@@ -223,6 +233,7 @@ function learnFromSelection(tab) {
       const current = await readUsageStats();
       const updated = QuickPaletteRanking.recordSelection(current, tab.url);
       await chrome.storage.local.set({ [USAGE_STORAGE_KEY]: updated });
+      usageStatsCache = updated;
     });
   return usageWriteQueue;
 }
@@ -230,18 +241,20 @@ function learnFromSelection(tab) {
 function resetLearnedRanking() {
   usageWriteQueue = usageWriteQueue
     .catch(() => undefined)
-    .then(() => chrome.storage.local.set({
-      [USAGE_STORAGE_KEY]: QuickPaletteRanking.clearUsageStats()
-    }));
+    .then(async () => {
+      const cleared = QuickPaletteRanking.clearUsageStats();
+      await chrome.storage.local.set({ [USAGE_STORAGE_KEY]: cleared });
+      usageStatsCache = cleared;
+    });
   return usageWriteQueue;
 }
 
 async function copyCurrentUrl(sourceTab) {
   let tab = sourceTab;
-  if (!tab?.url || tab.url.startsWith(chrome.runtime.getURL(""))) {
+  if (!tab?.url || tab.url.startsWith(EXTENSION_ORIGIN)) {
     [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   }
-  if (!tab?.url || tab.url.startsWith(chrome.runtime.getURL(""))) {
+  if (!tab?.url || tab.url.startsWith(EXTENSION_ORIGIN)) {
     throw new Error("No browser tab URL is available to copy");
   }
 

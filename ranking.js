@@ -117,9 +117,11 @@
   }
 
   function preferenceScore(statsValue, url, now = Date.now()) {
-    const stats = sanitizeUsageStats(statsValue);
-    const urlSignal = recordSignal(stats.byUrl[canonicalUrl(url)], now);
-    const hostSignal = recordSignal(stats.byHost[hostname(url)], now);
+    // Called once per tab per query; recordSignal validates individual records,
+    // so a full sanitizeUsageStats pass here would be O(records) of wasted work.
+    const stats = statsValue && statsValue.version === USAGE_VERSION ? statsValue : emptyUsageStats();
+    const urlSignal = recordSignal(stats.byUrl?.[canonicalUrl(url)], now);
+    const hostSignal = recordSignal(stats.byHost?.[hostname(url)], now);
     return clamp(urlSignal * 0.7 + hostSignal * 0.3);
   }
 
